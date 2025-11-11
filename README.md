@@ -6,3 +6,4 @@ Disciplina: Programação Lógica e Funcional
 Professor: Frank Coelho de Alcantara 
 Alunos: Nicolas Felix Hrescak
 GitHub: https://github.com/NicolasHrescak
+Ambiente de execução: https://www.onlinegdb.com/
