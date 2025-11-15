@@ -4,6 +4,7 @@ import Data.List (isInfixOf)
 import System.IO (IO, FilePath, writeFile, appendFile, readFile, putStrLn, getLine, putStr, hFlush, stdout)
 import Control.Exception (catch, IOException, evaluate)
 import System.IO.Error (isDoesNotExistError)
+import Text.Read (readMaybe)
 
 -- Tipos para o item do inventário conforme o documento:
 data Item = Item {
@@ -263,70 +264,108 @@ mainLoop inventario logs = do
             putStr "Quantidade: "; hFlush stdout; qtdStr <- getLine
             putStr "Categoria: "; hFlush stdout; cat <- getLine
             
-            -- Chamada da função de adicionar 
-            let resultado = additem agora id nome (read qtdStr) cat inventario
+            let maybeQtd = readMaybe qtdStr :: Maybe Int
             
-            -- Processamento do resultado
-            case resultado of
-                -- Se bem sucedida escreve e adiciona no inventário
-                Right (novoInv, logEntry) -> do
-                    salvarInventario novoInv
-                    salvarLog logEntry
-                    putStrLn "Item adicionado ao inventario."
-                    mainLoop novoInv (logEntry : logs) -- Continua o loop com o novo estado
-                
-                -- Se falhar chama apenas o log para escrever
-                Left erroMsg -> do
-                    putStrLn $ "Ocorreu uma falha" ++ erroMsg
-                    let logEntryFalha = LogEntry agora Add ("Tentativa de add: " ++ id) (Falha erroMsg)
+            case maybeQtd of
+                -- Falha a entrada não era um número
+                Nothing -> do
+                    putStrLn "Quantidade invalida. Por favor, insira um numero."
+                    let logEntryFalha = LogEntry agora Add ("Tentativa de add: " ++ id) (Falha "Input invalido para quantidade")
                     salvarLog logEntryFalha
-                    mainLoop inventario (logEntryFalha : logs) -- Continua o loop com o estado antigo
-
+                    mainLoop inventario (logEntryFalha : logs) -- Volta ao loop
+                
+                -- O valor é um número
+                Just qtd -> do
+                    -- Chamada da função de adicionar 
+                    let resultado = additem agora id nome (read qtdStr) cat inventario
+                    
+                    -- Processamento do resultado
+                    case resultado of
+                        -- Se bem sucedida escreve e adiciona no inventário
+                        Right (novoInv, logEntry) -> do
+                            salvarInventario novoInv
+                            salvarLog logEntry
+                            putStrLn "Item adicionado ao inventario."
+                            mainLoop novoInv (logEntry : logs) -- Continua o loop com o novo estado
+                        
+                        -- Se falhar chama apenas o log para escrever
+                        Left erroMsg -> do
+                            putStrLn $ "Ocorreu uma falha" ++ erroMsg
+                            let logEntryFalha = LogEntry agora Add ("Tentativa de add: " ++ id) (Falha erroMsg)
+                            salvarLog logEntryFalha
+                            mainLoop inventario (logEntryFalha : logs) -- Continua o loop com o estado antigo
+   
+            
         ["remove"] -> do
             -- Coleta de dados
             putStr "ID do item: "; hFlush stdout; id <- getLine
             putStr "Qtd a remover: "; hFlush stdout; qtdStr <- getLine
             
-            -- Chama a função
-            let resultado = removeItem agora id (read qtdStr) inventario
+            let maybeQtd = readMaybe qtdStr :: Maybe Int
             
-            -- Processamento do resultado
-            case resultado of
-                Right (novoInv, logEntry) -> do
-                    salvarInventario novoInv
-                    salvarLog logEntry
-                    putStrLn "Quantidade removida do item."
-                    mainLoop novoInv (logEntry : logs)
-                
-                Left erroMsg -> do
-                    putStrLn $ " Falha " ++ erroMsg
-                    -- Caso de tentastiva de remover mais do que existe
-                    let logEntryFalha = LogEntry agora Remove ("Tentativa de remover: " ++ id) (Falha erroMsg)
+            case maybeQtd of
+                -- input não numérico
+                Nothing -> do
+                    putStrLn "Quantidade invalida. Por favor, insira um numero."
+                    let logEntryFalha = LogEntry agora Remove ("Tentativa de remove: " ++ id) (Falha "Input invalido para quantidade")
                     salvarLog logEntryFalha
                     mainLoop inventario (logEntryFalha : logs)
+                
+                Just qtdRemover -> do
+            
+                    -- Chama a função
+                    let resultado = removeItem agora id (read qtdStr) inventario
+                    
+                    -- Processamento do resultado
+                    case resultado of
+                        Right (novoInv, logEntry) -> do
+                            salvarInventario novoInv
+                            salvarLog logEntry
+                            putStrLn "Quantidade removida do item."
+                            mainLoop novoInv (logEntry : logs)
+                        
+                        Left erroMsg -> do
+                            putStrLn $ " Falha " ++ erroMsg
+                            -- Caso de tentastiva de remover mais do que existe
+                            let logEntryFalha = LogEntry agora Remove ("Tentativa de remover: " ++ id) (Falha erroMsg)
+                            salvarLog logEntryFalha
+                            mainLoop inventario (logEntryFalha : logs)
 
         ["update"] -> do
             -- Coleta de dados
             putStr "ID do item: "; hFlush stdout; id <- getLine
             putStr "Quantidade a adicionar: "; hFlush stdout; qtdStr <- getLine
             
-            -- Chamada da função de update
-            let resultado = updateQty agora id (read qtdStr) inventario
+            let maybeQtd = readMaybe qtdStr :: Maybe Int
             
-            -- Processamento do resultado
-            case resultado of
-                Right (novoInv, logEntry) -> do
-                    salvarInventario novoInv
-                    salvarLog logEntry
-                    putStrLn "Estoque do item atualizado."
-                    mainLoop novoInv (logEntry : logs)
-                
-                Left erroMsg -> do
-                    putStrLn $ "Falha " ++ erroMsg
-                    let logEntryFalha = LogEntry agora Update ("Tentativa de update: " ++ id) (Falha erroMsg)
+            case maybeQtd of
+                -- input não numérico
+                Nothing -> do
+                    putStrLn "Quantidade invalida. Por favor, insira um numero."
+                    let logEntryFalha = LogEntry agora Update ("Tentativa de update: " ++ id) (Falha "Input invalido para quantidade")
                     salvarLog logEntryFalha
                     mainLoop inventario (logEntryFalha : logs)
-
+                
+                -- input é numérico
+                Just qtdAdicionar -> do
+            
+                    -- Chamada da função de update
+                    let resultado = updateQty agora id (read qtdStr) inventario
+                    
+                    -- Processamento do resultado
+                    case resultado of
+                        Right (novoInv, logEntry) -> do
+                            salvarInventario novoInv
+                            salvarLog logEntry
+                            putStrLn "Estoque do item atualizado."
+                            mainLoop novoInv (logEntry : logs)
+                        
+                        Left erroMsg -> do
+                            putStrLn $ "Falha " ++ erroMsg
+                            let logEntryFalha = LogEntry agora Update ("Tentativa de update: " ++ id) (Falha erroMsg)
+                            salvarLog logEntryFalha
+                            mainLoop inventario (logEntryFalha : logs)
+        
         ["list"] -> do
             -- Comando de listar
             putStrLn "\n--- Inventario Atual ---"
