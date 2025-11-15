@@ -1,8 +1,8 @@
 import qualified Data.Map as Map
-import Data.Time.Clock (UTCTime)
+import Data.Time.Clock (UTCTime, getCurrentTime)
 import Data.List (isInfixOf)
 import System.IO (IO, FilePath, writeFile, appendFile, readFile, putStrLn, getLine, putStr, hFlush, stdout)
-import Control.Exception (catch, IOException)
+import Control.Exception (catch, IOException, evaluate)
 import System.IO.Error (isDoesNotExistError)
 
 -- Tipos para o item do inventário conforme o documento:
@@ -73,8 +73,8 @@ additem timestamp itemID nome qtd categoria inventario = -- Nome pra especificar
                 
 --------------------------------------------------------------------------------------------------------
 --------------- FUNCAO PARA REMOVER UM ITEM 
-removeltem :: UTCTime -> String -> Int -> Inventario -> Either String ResultadoOperacao
-removeltem timestamp itemID qtdRemover inventario =
+removeItem :: UTCTime -> String -> Int -> Inventario -> Either String ResultadoOperacao
+removeItem timestamp itemID qtdRemover inventario =
     case Map.lookup itemID inventario of
         -- Falha
         Nothing -> Left "Erro: Item nao encontrado para remocao."
@@ -152,14 +152,16 @@ logFile = "Auditoria.log"
 carregarInventario :: IO Inventario
 carregarInventario = (do
     -- Tenta ler o arquivo
-    conteudo <- readFile inventarioFile
+    conteudo <- readFile inventarioFile -- Serve para o codigo sempre ler o arquivo
+    
+    _ <- evaluate (length conteudo)
     -- O reasd converte a string de volta para o tipo Inventario
     let inventario = read conteudo
     putStrLn "Inventario.dat carregado."
     return inventario
     ) `catch` \e -> do -- Catch para lidar com ausencia de arquivo conforme o documento pede 
         if isDoesNotExistError e then do
-            putStrLn "[INFO] Inventario.dat nao encontrado. Iniciando com inventario vazio."
+            putStrLn "Inventario.dat nao encontrado. Iniciando com inventario vazio."
             return Map.empty -- Se não encontrar inicia com o inventario vazio
         else
             ioError e -- Verifica outros erros de IO possíveis
@@ -168,6 +170,8 @@ carregarInventario = (do
 carregarLog :: IO [LogEntry]
 carregarLog = (do
     conteudo <- readFile logFile
+    
+    _ <- evaluate (length conteudo) -- Serve para o codigo sempre ler o arquivo
     
     -- Se o arquivo estiver vazio o 'lines' retorna [], o que é uma medida de segurança.
     let linhas = lines conteudo
@@ -191,6 +195,40 @@ salvarInventario inv = writeFile inventarioFile (show inv) -- bem sucedida
 salvarLog :: LogEntry -> IO ()
 salvarLog logEntry = appendFile logFile (show logEntry ++ "\n")
 
+
+-- Função log de erro
+logsDeErro :: [LogEntry] -> [LogEntry]
+logsDeErro logs = filter ehLogDeErro logs
+  where
+    ehLogDeErro :: LogEntry -> Bool
+    ehLogDeErro log =
+      case status log of
+        Falha _ -> True  -- Se o status for 'Falha', mantém
+        Sucesso -> False -- Se for 'Sucesso', é descartada
+        
+-- Função de histórico por item
+historicoPorItem :: String -> [LogEntry] -> [LogEntry]
+historicoPorItem idProcurado logs = filter (contemItemID idProcurado) logs
+  where
+    contemItemID :: String -> LogEntry -> Bool
+    contemItemID id log =
+        let idString = "(ID: " ++ id ++ ")"
+        in idString `isInfixOf` (detalhes log)
+        
+        
+-- Função para o relatorio
+relatorioSimplesMovimentacao :: [LogEntry] -> String
+relatorioSimplesMovimentacao logs =
+    "Total de operacoes de Sucesso (Add/Remove/Update): " ++ show (length movimentos) ++ "\n" ++
+    "Total de Falhas: " ++ show (length (logsDeErro logs))
+  where
+    movimentos = filter ehMovimento logs
+    ehMovimento log =
+        case (acao log, status log) of
+            (Add, Sucesso) -> True
+            (Remove, Sucesso) -> True
+            (Update, Sucesso) -> True
+            _ -> False
 
 main :: IO ()
 main = do
@@ -250,7 +288,7 @@ mainLoop inventario logs = do
             putStr "Qtd a remover: "; hFlush stdout; qtdStr <- getLine
             
             -- Chama a função
-            let resultado = removeltem agora id (read qtdStr) inventario
+            let resultado = removeItem agora id (read qtdStr) inventario
             
             -- Processamento do resultado
             case resultado of
@@ -292,14 +330,48 @@ mainLoop inventario logs = do
         ["list"] -> do
             -- Comando de listar
             putStrLn "\n--- Inventario Atual ---"
-            print inventario -- 'print' é 'show' + 'putStrLn'
+            
+            -- Pega todos os itens e transforma numa lista de items APENAS PARA FICAR SEPARADO NO PRINT
+            let listaDeItens = Map.elems inventario
+            
+            -- Verifica se o inventário está vazio
+            if null listaDeItens
+            then putStrLn "O inventario esta vazio."
+            else 
+                -- O mapM executa um print pra cada um da list, assim pulando linha e ficando corretamente no print 
+                mapM_ print listaDeItens
+                
             mainLoop inventario logs -- Continua com o mesmo estado
+            
+            
 
         ["report"] -> do
-            -- "Comando de Relatório" Será implementado na Etapa 4
-            putStrLn "Funcao de relatorio (Etapa 4) sera chamada aqui."
-            -- Por enquanto, apenas voltamos ao loop
-            mainLoop inventario logs
+            putStrLn "\n--- Gerando Relatorios ---"
+
+            -- Relatório de erro
+            let erros = logsDeErro logs
+            putStrLn "--- Relatorio de Erros ---"
+            if null erros
+            then putStrLn "Nenhum erro registrado."
+            else mapM_ (putStrLn . show) erros -- 'mapM_' aplica 'print' a cada item
+    
+            -- Relatório de histórico 
+            putStrLn "\n--- Consultar Historico por Item ---"
+            putStr "Digite o ID do item para ver historico (ou deixe em branco): "; hFlush stdout
+            idConsulta <- getLine
+    
+            if null idConsulta
+            then putStrLn "Consulta pulada."
+            else do
+                let historico = historicoPorItem idConsulta logs
+                mapM_ (putStrLn . show) historico
+    
+            -- Relatório de Movimentação
+            putStrLn "\n--- Relatorio de Movimentacao ---"
+            putStrLn $ relatorioSimplesMovimentacao logs
+    
+            putStrLn "--- Fim dos Relatorios ---"
+            mainLoop inventario logs -- Retorna ao loop
         
         ["quit"] ->
             putStrLn "Encerrando sistema."
